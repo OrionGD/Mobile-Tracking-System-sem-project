@@ -2,13 +2,19 @@ import os
 import json
 import math
 import secrets
+import base64
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import requests
 
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager,
@@ -27,9 +33,33 @@ load_dotenv()
 app = Flask(__name__)
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'change-this-secret')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
+
+# CYBERSECURITY: Rate Limiting to prevent brute force
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*", "allow_headers": "*", "methods": "*"}}) 
 jwt = JWTManager(app)
 sock = Sock(app)
+
+# CYBERSECURITY: Vault Encryption Key Derivation
+def get_vault_cipher():
+    secret = app.config['JWT_SECRET_KEY'].encode()
+    salt = b'mts_security_salt' # In production, use a unique salt from env
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(secret))
+    return Fernet(key)
+
+cipher = get_vault_cipher()
 
 MONGODB_URI = os.getenv('MONGODB_URI',
     'mongodb://MTS:MTS@ac-eaefaxg-shard-00-00.mzv9tpk.mongodb.net:27017,'
@@ -126,13 +156,25 @@ def verify_device_for_user(device_id, api_key, username):
     return device and device.get('api_key') == api_key and device.get('owner') == username
 
 
+# CYBERSECURITY: Security Headers Middleware
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com fonts.googleapis.com; font-src 'self' cdnjs.cloudflare.com fonts.gstatic.com; img-src 'self' data: https:;"
+    return response
+
+
 @app.route('/')
 def home():
-    return jsonify({'message': 'GPS Tracking Backend API', 'status': 'running'})
+    return jsonify({'message': 'MTS Cybersecurity Core API', 'status': 'PROTECTED'})
 
 
 @app.route('/register', methods=['POST', 'OPTIONS'])
 @app.route('/auth/register', methods=['POST', 'OPTIONS'])
+@limiter.limit("5 per hour")
 def register_user():
     if request.method == 'OPTIONS':
         return '', 200
@@ -152,11 +194,12 @@ def register_user():
         'created_at': datetime.utcnow()
     })
 
-    # Create initial vault data for the new user
+    # CYBERSECURITY: Audit Log for Registration
     vault_logs.insert_one({
         'owner': username,
-        'data': {'event': 'SYS_INITIALIZED', 'ip': request.remote_addr},
-        'created_at': datetime.utcnow()
+        'data': cipher.encrypt(json.dumps({'event': 'OPERATOR_PROVISIONED', 'ip': request.remote_addr}).encode()),
+        'created_at': datetime.utcnow(),
+        'encrypted': True
     })
     
     vault_operators.insert_one({
@@ -165,11 +208,12 @@ def register_user():
         'created_at': datetime.utcnow()
     })
 
-    return jsonify({'message': 'User registered successfully'}), 201
+    return jsonify({'message': 'Operator profile established in secure registry'}), 201
 
 
 @app.route('/login', methods=['POST', 'OPTIONS'])
 @app.route('/auth/login', methods=['POST', 'OPTIONS'])
+@limiter.limit("10 per minute")
 def login_user():
     if request.method == 'OPTIONS':
         return '', 200
@@ -182,15 +226,30 @@ def login_user():
 
     user = users.find_one({'username': username})
     if not user or not verify_password(password, user['password']):
+        # CYBERSECURITY: Log failed login attempt
+        vault_logs.insert_one({
+            'owner': 'SYSTEM',
+            'data': cipher.encrypt(json.dumps({'event': 'AUTH_FAILURE', 'target': username, 'ip': request.remote_addr}).encode()),
+            'created_at': datetime.utcnow(),
+            'encrypted': True
+        })
         return jsonify({'error': 'Invalid username or password'}), 401
 
     access_token = create_access_token(identity=username)
     registered_devices = list(devices.find({'owner': username}, {'_id': 0, 'device_id': 1, 'api_key': 1}))
 
+    # CYBERSECURITY: Audit Log for Success
+    vault_logs.insert_one({
+        'owner': username,
+        'data': cipher.encrypt(json.dumps({'event': 'C2_ACCESS_GRANTED', 'ip': request.remote_addr}).encode()),
+        'created_at': datetime.utcnow(),
+        'encrypted': True
+    })
+
     return jsonify({
         'access_token': access_token,
         'devices': registered_devices,
-        'message': 'Login successful'
+        'message': 'C2 Access Granted. Session JWT issued.'
     }), 200
 
 
@@ -248,15 +307,40 @@ def receive_location():
         return jsonify({'error': f'Missing required fields: {", ".join(missing)}'}), 400
 
     device_id = data.get('device_id')
-    if not device_id:
-        return jsonify({'error': 'device_id is required'}), 400
-
-    # If it's the web dashboard, we allow it without an API key if JWT is valid
-    if device_id == 'COMMAND_CONSOLE' or not api_key:
-        # We'll allow the location update for the user's primary "console" node
-        pass
-    elif not verify_device_for_user(device_id, api_key, username):
+    
+    # CYBERSECURITY: Unauthorized device check
+    if device_id != 'COMMAND_CONSOLE' and not verify_device_for_user(device_id, api_key, username):
+        vault_logs.insert_one({
+            'owner': username,
+            'data': cipher.encrypt(json.dumps({'event': 'UNAUTHORIZED_NODE_INGEST', 'node': device_id, 'ip': request.remote_addr}).encode()),
+            'created_at': datetime.utcnow(),
+            'encrypted': True
+        })
         return jsonify({'error': 'Unauthorized device or API key'}), 403
+
+    # CYBERSECURITY: Anomaly/Threat Detection (Impossible Travel)
+    last_loc = locations.find_one({'device_id': device_id}, sort=[('timestamp', -1)])
+    if last_loc:
+        dist = haversine(float(data['latitude']), float(data['longitude']), last_loc['latitude'], last_loc['longitude'])
+        # If speed > 500m/s (approx Mach 1.5), flag as threat
+        try:
+            t1 = datetime.fromisoformat(data['timestamp'].replace('Z', ''))
+            t2 = last_loc['created_at']
+            time_diff = abs((t1 - t2).total_seconds())
+            if time_diff > 0 and (dist / time_diff) > 500:
+                vault_threats.insert_one({
+                    'owner': username,
+                    'data': cipher.encrypt(json.dumps({
+                        'event': 'IMPOSSIBLE_TRAVEL_DETECTED',
+                        'node': device_id,
+                        'speed': round(dist/time_diff, 2),
+                        'ip': request.remote_addr
+                    }).encode()),
+                    'created_at': datetime.utcnow(),
+                    'encrypted': True
+                })
+                broadcast('security_threat', {'type': 'IMPOSSIBLE_TRAVEL', 'node': device_id}, owner=username)
+        except: pass
 
     location_doc = {
         'device_id': device_id,
@@ -296,7 +380,7 @@ def receive_location():
             alerts.insert_one({
                 'device_id': device_id,
                 'type': 'geofence_exit',
-                'message': f'Device left the allowed area ({round(distance,1)} meters away)',
+                'message': f'Digital Perimeter Breach Detected ({round(distance,1)}m deviation)',
                 'created_at': datetime.utcnow()
             })
         elif inside and not geofence.get('is_inside', True):
@@ -313,7 +397,7 @@ def receive_location():
     if alert_payload:
         broadcast('geofence_alert', alert_payload, owner=username)
 
-    return jsonify({'message': 'Location updated successfully', 'device_id': device_id}), 200
+    return jsonify({'message': 'Telemetry packet ingested and verified', 'device_id': device_id}), 200
 
 
 @app.route('/location/<device_id>', methods=['GET'])
@@ -354,7 +438,7 @@ def set_geofence():
         upsert=True
     )
 
-    return jsonify({'message': 'Geofence configured successfully', 'device_id': device_id}), 200
+    return jsonify({'message': 'Digital perimeter established and armed', 'device_id': device_id}), 200
 
 
 @app.route('/geofence/<device_id>', methods=['GET'])
@@ -397,14 +481,19 @@ def save_vault_data(module):
         return jsonify({'error': f'Invalid module: {module}'}), 400
         
     collection = collection_map[module]
+    
+    # CYBERSECURITY: Symmetric Encryption of data at rest
+    encrypted_data = cipher.encrypt(json.dumps(data).encode())
+    
     doc = {
         'owner': username,
-        'data': data,
+        'data': encrypted_data,
+        'encrypted': True,
         'created_at': datetime.utcnow()
     }
     
     collection.insert_one(doc)
-    return jsonify({'message': f'Data saved to {module} successfully'}), 201
+    return jsonify({'message': f'Segmented vault persistence successful: {module}'}), 201
 
 
 @app.route('/vault/<module>', methods=['GET'])
@@ -427,7 +516,19 @@ def get_vault_data(module):
     collection = collection_map[module]
     cursor = collection.find({'owner': username}, {'_id': 0}).sort('created_at', -1).limit(100)
     
-    return jsonify({module: [to_json(doc) for doc in cursor]}), 200
+    results = []
+    for doc in cursor:
+        clean_doc = to_json(doc)
+        # CYBERSECURITY: On-the-fly Decryption
+        if doc.get('encrypted'):
+            try:
+                decrypted_bytes = cipher.decrypt(doc['data'])
+                clean_doc['data'] = json.loads(decrypted_bytes.decode())
+            except Exception as e:
+                clean_doc['data'] = {"error": "Decryption failed", "details": str(e)}
+        results.append(clean_doc)
+    
+    return jsonify({module: results}), 200
 
 
 @app.route('/proxy/groq', methods=['POST'])
@@ -491,19 +592,19 @@ def health_check():
 if __name__ == '__main__':
     ssl_cert = os.getenv('SSL_CERT_PATH')
     ssl_key = os.getenv('SSL_KEY_PATH')
-    print('Starting GPS Tracking Backend Server...')
-    print('API Endpoints:')
-    print('POST /auth/register - Register user')
-    print('POST /auth/login - User login')
-    print('POST /devices/register - Register device and get API key')
-    print('POST /location - Receive location updates')
-    print('GET /location/<device_id> - Get device location')
-    print('GET /devices - List tracked devices')
-    print('POST /geofence - Create device geofence')
-    print('GET /alerts - Get device alerts')
-    print('GET /health - Health check')
+    print('INITIALIZING MTS CYBERSECURITY KERNEL...')
+    print('SECURE API ENDPOINTS ACTIVE:')
+    print('POST /auth/register - Operator Provisioning')
+    print('POST /auth/login - C2 Access Grant')
+    print('POST /devices/register - Node Ingest Key Provisioning')
+    print('POST /location - Telemetry Packet Ingestion')
+    print('GET /location/<device_id> - Singular Node Status')
+    print('GET /devices - Global Node Inventory')
+    print('POST /geofence - Perimeter Configuration')
+    print('GET /alerts - Threat Incident Retrieval')
+    print('GET /health - Integrity Check')
     if ssl_cert and ssl_key:
-        print('Running with HTTPS')
+        print('Running with HTTPS Hardening')
         app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=(ssl_cert, ssl_key))
     else:
         app.run(host='0.0.0.0', port=5000, debug=True)

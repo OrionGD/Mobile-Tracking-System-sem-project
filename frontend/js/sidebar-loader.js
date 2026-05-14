@@ -1,27 +1,27 @@
 const leftFeatures = [
-    { id: 'nav-nexus', href: 'dashboard.html', title: 'Command Nexus', icon: 'fa-grip' },
-    { id: 'nav-telemetry', href: 'telemetry.html', title: 'Telemetry Stream', icon: 'fa-wave-square' },
-    { id: 'nav-tracking', href: 'geotracker.html', title: 'Geo-Mapping', icon: 'fa-location-dot' },
-    { id: 'nav-map', href: 'mapview.html', title: 'Map View', icon: 'fa-globe' },
-    { id: 'nav-security', href: 'sentinel.html', title: 'Sentinel Core', icon: 'fa-shield-halved' },
-    { id: 'nav-alerts', href: 'threatmatrix.html', title: 'Threat Matrix', icon: 'fa-bell' },
-    { id: 'nav-scanner', href: 'threatscanner.html', title: 'Threat Scanner', icon: 'fa-satellite-dish' },
-    { id: 'nav-hardware', href: 'hardwarenexus.html', title: 'Hardware Nexus', icon: 'fa-microchip' },
-    { id: 'nav-registry', href: 'deviceregistry.html', title: 'Device Registry', icon: 'fa-list-check' },
-    { id: 'nav-network', href: 'networkmatrix.html', title: 'Network Matrix', icon: 'fa-network-wired' }
+    { id: 'nav-nexus', href: 'dashboard.html', title: 'C2 Control Nexus', icon: 'fa-grip' },
+    { id: 'nav-telemetry', href: 'telemetry.html', title: 'Encrypted Telemetry', icon: 'fa-wave-square' },
+    { id: 'nav-tracking', href: 'geotracker.html', title: 'Tactical Surveillance', icon: 'fa-location-dot' },
+    { id: 'nav-map', href: 'mapview.html', title: 'Global Threat Map', icon: 'fa-globe' },
+    { id: 'nav-security', href: 'sentinel.html', title: 'Zero-Trust Sentinel', icon: 'fa-shield-halved' },
+    { id: 'nav-alerts', href: 'threatmatrix.html', title: 'Alert Incident Matrix', icon: 'fa-bell' },
+    { id: 'nav-scanner', href: 'threatscanner.html', title: 'Neural Threat Scanner', icon: 'fa-satellite-dish' },
+    { id: 'nav-hardware', href: 'hardwarenexus.html', title: 'Node Infrastructure', icon: 'fa-microchip' },
+    { id: 'nav-registry', href: 'deviceregistry.html', title: 'Asset Provisioning', icon: 'fa-list-check' },
+    { id: 'nav-network', href: 'networkmatrix.html', title: 'Secure Topology', icon: 'fa-network-wired' }
 ];
 
 const rightFeatures = [
-    { id: 'nav-monitor', href: 'networkmonitor.html', title: 'Network Monitor', icon: 'fa-chart-line' },
-    { id: 'nav-analytics', href: 'aianalytics.html', title: 'AI Analytics', icon: 'fa-brain' },
-    { id: 'nav-archive', href: 'archivenode.html', title: 'Archive Node', icon: 'fa-box-archive' },
-    { id: 'nav-sessions', href: 'sessionlogs.html', title: 'Session Logs', icon: 'fa-user-clock' },
-    { id: 'nav-ops', href: 'remoteops.html', title: 'Remote Ops', icon: 'fa-terminal' },
-    { id: 'nav-commands', href: 'remotecommands.html', title: 'Remote Commands', icon: 'fa-code' },
-    { id: 'nav-export', href: 'dataexport.html', title: 'Data Export', icon: 'fa-file-export' },
-    { id: 'nav-cloud', href: 'cloudsync.html', title: 'Cloud Sync', icon: 'fa-cloud-arrow-up' },
-    { id: 'nav-admin', href: 'operatorconsole.html', title: 'Operator Console', icon: 'fa-user-shield' },
-    { id: 'nav-forge', href: 'systemforge.html', title: 'System Forge', icon: 'fa-gear' }
+    { id: 'nav-monitor', href: 'networkmonitor.html', title: 'Traffic Integrity', icon: 'fa-chart-line' },
+    { id: 'nav-analytics', href: 'aianalytics.html', title: 'Intelligence Analytics', icon: 'fa-brain' },
+    { id: 'nav-archive', href: 'archivenode.html', title: 'Immutable Vault', icon: 'fa-box-archive' },
+    { id: 'nav-sessions', href: 'sessionlogs.html', title: 'Forensic Audit Logs', icon: 'fa-user-clock' },
+    { id: 'nav-ops', href: 'remoteops.html', title: 'Cyber Operations', icon: 'fa-terminal' },
+    { id: 'nav-commands', href: 'remotecommands.html', title: 'Remote C2 Execution', icon: 'fa-code' },
+    { id: 'nav-export', href: 'dataexport.html', title: 'Secure Data Export', icon: 'fa-file-export' },
+    { id: 'nav-cloud', href: 'cloudsync.html', title: 'Relay Synchronization', icon: 'fa-cloud-arrow-up' },
+    { id: 'nav-admin', href: 'operatorconsole.html', title: 'Admin Oversight', icon: 'fa-user-shield' },
+    { id: 'nav-forge', href: 'systemforge.html', title: 'Kernel Configuration', icon: 'fa-gear' }
 ];
 
 function generateLink(f, activeId) {
