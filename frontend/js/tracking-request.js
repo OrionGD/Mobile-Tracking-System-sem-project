@@ -869,19 +869,17 @@ function openHtmlEmailPreview() {
         if (isSmtpConfigured) {
             smtpDot.style.backgroundColor = '#00ff88'; // green
             smtpText.textContent = 'SMTP mailer is active';
-            if (sendDirectHtmlBtn) {
-                sendDirectHtmlBtn.disabled = false;
-                sendDirectHtmlBtn.style.opacity = '1';
-                sendDirectHtmlBtn.style.cursor = 'pointer';
-            }
         } else {
-            smtpDot.style.backgroundColor = '#e53e3e'; // red
-            smtpText.textContent = 'SMTP configuration missing';
-            if (sendDirectHtmlBtn) {
-                sendDirectHtmlBtn.disabled = true;
-                sendDirectHtmlBtn.style.opacity = '0.5';
-                sendDirectHtmlBtn.style.cursor = 'not-allowed';
-            }
+            smtpDot.style.backgroundColor = '#ffbb33'; // orange warning
+            smtpText.textContent = 'SMTP inactive (Gmail redirect active)';
+        }
+        
+        // Always enable the compose button
+        if (sendDirectHtmlBtn) {
+            sendDirectHtmlBtn.disabled = false;
+            sendDirectHtmlBtn.style.opacity = '1';
+            sendDirectHtmlBtn.style.cursor = 'pointer';
+            sendDirectHtmlBtn.innerHTML = '<i class="fa-solid fa-envelope"></i> Compose in Gmail';
         }
     }
 
@@ -986,44 +984,65 @@ MTS CORE TRACKER - Consent-Based Device Enrollment`;
 }
 
 async function sendDirectHtmlEmail() {
-    if (!lastRequest || !lastRequest.token) return;
+    if (!lastRequest || !lastRequest.token || !lastRequest.html_preview) {
+        showToast('No email template available for copy.', 'warning');
+        return;
+    }
     
     const toEmail = lastRequest.notify_email || inputs.notifyEmail.value.trim() || '';
     
-    // Disable send button during transmission
+    // Visually show copy and redirect operation progress
     if (sendDirectHtmlBtn) {
         sendDirectHtmlBtn.disabled = true;
-        sendDirectHtmlBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> SENDING...';
+        sendDirectHtmlBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing Gmail...';
     }
     
     try {
-        const token = localStorage.getItem('access_token');
-        const headers = { 'Content-Type': 'application/json' };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const plainTextFallback = `MTS Device Enrollment Consent Request:\n\nHello ${lastRequest.owner_name || 'Owner'},\n\nA monitoring request has been generated. Please review and respond by visiting the registration portal:\n${lastRequest.registration_url || lastRequest.registrationUrl}`;
         
-        const response = await fetch(`${BACKEND_URL}/tracking-requests/${lastRequest.token}/send-email`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({ notify_email: toEmail })
-        });
+        // Write the rich-formatted HTML preview to the modern browser clipboard
+        const htmlBlob = new Blob([lastRequest.html_preview], { type: 'text/html' });
+        const textBlob = new Blob([plainTextFallback], { type: 'text/plain' });
         
-        const data = await response.json();
-        if (response.ok && data.success) {
-            showToast('Premium HTML Email sent successfully!', 'success');
-            updateRequestStatus('EMAIL_OPENED');
+        await navigator.clipboard.write([
+            new ClipboardItem({
+                'text/html': htmlBlob,
+                'text/plain': textBlob
+            })
+        ]);
+        
+        showToast('HTML Email template copied! Opening Gmail...', 'success');
+        
+        const subject = `MTS CORE TRACKER: Device Monitoring Consent Request`;
+        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(toEmail)}&su=${encodeURIComponent(subject)}`;
+        
+        // Open Gmail Compose in a new tab
+        setTimeout(() => {
+            window.open(gmailUrl, '_blank');
             closeHtmlEmailPreview();
-        } else {
-            const err = data.error || data.msg || 'Delivery failure';
-            showToast(`Failed to send email: ${err}`, 'danger');
-        }
+            updateRequestStatus('EMAIL_OPENED');
+        }, 1200);
+        
     } catch (e) {
-        showToast(`Error: ${e.message}`, 'danger');
+        console.warn('Clipboard rich-text copy failed, falling back to plaintext content:', e.message);
+        
+        // Simple plain text fallback
+        const plainTextFallback = `MTS Device Enrollment Consent Request:\n\nHello ${lastRequest.owner_name || 'Owner'},\n\nPlease review and respond by visiting the registration portal:\n${lastRequest.registration_url || lastRequest.registrationUrl}`;
+        
+        navigator.clipboard.writeText(plainTextFallback).then(() => {
+            showToast('Email text copied to clipboard! Opening Gmail...', 'info');
+            const subject = `MTS CORE TRACKER: Device Monitoring Consent Request`;
+            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(toEmail)}&su=${encodeURIComponent(subject)}`;
+            window.open(gmailUrl, '_blank');
+            closeHtmlEmailPreview();
+            updateRequestStatus('EMAIL_OPENED');
+        }).catch(() => {
+            showToast('Failed to copy content automatically. Please copy manually.', 'danger');
+        });
     } finally {
         if (sendDirectHtmlBtn) {
             sendDirectHtmlBtn.disabled = false;
-            sendDirectHtmlBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Direct Email';
+            sendDirectHtmlBtn.innerHTML = '<i class="fa-solid fa-envelope"></i> Compose in Gmail';
         }
     }
 }
