@@ -301,9 +301,21 @@ def get_public_host():
 
 
 def get_frontend_url():
+    env_frontend = os.getenv('FRONTEND_URL')
+    if env_frontend:
+        return env_frontend.rstrip('/')
     host = get_public_host()
     frontend_port = os.getenv('FRONTEND_PORT', '8000')
     return f"http://{host}:{frontend_port}"
+
+
+def get_backend_url():
+    env_backend = os.getenv('BACKEND_URL')
+    if env_backend:
+        return env_backend.rstrip('/')
+    host = get_public_host()
+    backend_port = os.getenv('BACKEND_PORT', '5000')
+    return f"http://{host}:{backend_port}"
 
 
 # CYBERSECURITY: Security Headers & CORS Middleware
@@ -589,8 +601,7 @@ def render_html_email(request_doc):
     consent_expiry = request_doc.get('consent_expiry_date') or ''
     
     # Base registration URL
-    system_ip = get_public_host()
-    registration_link = f"http://{system_ip}:5000/register-device/{request_doc.get('token')}"
+    registration_link = f"{get_backend_url()}/register-device/{request_doc.get('token')}"
 
     # Get QR base64
     qr_b64 = request_doc.get('qrBase64') or request_doc.get('qr_base64')
@@ -1053,8 +1064,7 @@ def create_tracking_request():
     created_at = datetime.now(timezone.utc)
     expires_at = created_at + timedelta(hours=24)
 
-    system_ip = get_public_host()
-    registration_url = f"http://{system_ip}:5000/register-device/{token}"
+    registration_url = f"{get_backend_url()}/register-device/{token}"
 
     # Generate QR Code image as base64 PNG
     qr_b64 = None
@@ -1332,7 +1342,7 @@ def get_tracking_request_qr(token):
     if not request_doc:
         return jsonify({'error': 'Invalid or unavailable token'}), 404
 
-    registration_url = f"http://{get_public_host()}:5000/register-device/{token}"
+    registration_url = f"{get_backend_url()}/register-device/{token}"
 
     qr_img = qrcode.make(registration_url)
     buffer = io.BytesIO()
